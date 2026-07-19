@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SCINTILLA — Sector Rotation</title>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --border:#2d333b; --text:#e6edf3; --dim:#8b949e;
+    --green:#3fb950; --red:#f85149; --yellow:#d29922; --blue:#58a6ff; --purple:#bc8cff;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:var(--bg); color:var(--text); font-family:-apple-system,'SF Pro Display','Segoe UI',Roboto,sans-serif; padding:14px; min-height:100vh;}
+  header{display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:12px;}
+  h1{font-size:18px; font-weight:700; letter-spacing:1px;}
+  h1 span{color:var(--blue);}
+  .status{font-size:11px; color:var(--dim);}
+  .status b{color:var(--green);}
+  .status.err b{color:var(--red);}
+  .controls{display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:12px;}
+  .btn{background:var(--panel); border:1px solid var(--border); color:var(--dim); font-size:11px; padding:5px 10px; border-radius:6px; cursor:pointer; user-select:none;}
+  .btn:hover{border-color:var(--blue); color:var(--text);}
+  .btn.active{background:#1f6feb33; border-color:var(--blue); color:var(--blue); font-weight:600;}
+  .chip{display:inline-flex; align-items:center; gap:5px; background:var(--panel); border:1px solid var(--border); font-size:11px; padding:4px 9px; border-radius:20px; cursor:pointer; user-select:none; opacity:.35;}
+  .chip.on{opacity:1;}
+  .chip .dot{width:8px; height:8px; border-radius:50%;}
+  .divider{width:1px; height:20px; background:var(--border); margin:0 4px;}
+  .grid{display:grid; grid-template-columns:0.72fr 1.75fr; grid-template-rows:minmax(280px,34vh) minmax(420px,52vh); gap:12px;}
+  .panel{background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:10px; display:flex; flex-direction:column; overflow:hidden;}
+  .panel h2{font-size:11px; font-weight:600; color:var(--dim); text-transform:uppercase; letter-spacing:1.5px; margin-bottom:8px; display:flex; justify-content:space-between;}
+  .panel h2 .sub{font-weight:400; text-transform:none; letter-spacing:0;}
+  #heatmap{flex:1; display:grid; grid-template-columns:repeat(3,1fr); grid-auto-rows:1fr; gap:5px;}
+  .tile{border-radius:7px; padding:5px 6px; display:flex; flex-direction:column; justify-content:space-between; cursor:pointer; position:relative; transition:transform .1s;}
+  .tile:hover{transform:scale(1.03);}
+  .tile .tk{font-weight:800; font-size:12px;}
+  .tile .nm{font-size:8px; opacity:.8; line-height:1.1;}
+  .tile .pc{font-size:11px; font-weight:700;}
+  .tile .tv{position:absolute; top:5px; right:7px; font-size:10px; opacity:.6; text-decoration:none; color:inherit;}
+  .tile .tv:hover{opacity:1;}
+  .tile.off{outline:2px dashed var(--dim); opacity:.3;}
+  #lines{flex:1; position:relative;}
+  #linesChart{position:absolute; inset:0;}
+  #rrgWrap{flex:1; position:relative;}
+  #rrg{position:absolute; inset:0; width:100%; height:100%;}
+  #qtable{flex:1; overflow-y:auto;}
+  table{width:100%; border-collapse:collapse; font-size:12px;}
+  th{text-align:left; color:var(--dim); font-size:10px; text-transform:uppercase; letter-spacing:1px; padding:4px 8px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--panel);}
+  td{padding:5px 8px; border-bottom:1px solid #21262d;}
+  tr:hover td{background:#1c2128;}
+  .badge{font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px;}
+  .b-lead{background:#3fb95022; color:var(--green);}
+  .b-weak{background:#d2992222; color:var(--yellow);}
+  .b-lag{background:#f8514922; color:var(--red);}
+  .b-impr{background:#58a6ff22; color:var(--blue);}
+  .num{font-variant-numeric:tabular-nums; text-align:right;}
+  .up{color:var(--green);} .dn{color:var(--red);}
+  .llabel{position:absolute; font-size:10px; font-weight:800; pointer-events:none; transform:translateY(-50%); text-shadow:0 0 4px #0d1117, 0 0 4px #0d1117; z-index:5;}
+  #banner{display:none; background:#f8514922; border:1px solid var(--red); color:var(--red); font-size:12px; padding:8px 12px; border-radius:8px; margin-bottom:10px;}
+  @media(max-width:1000px){.grid{grid-template-columns:1fr; grid-template-rows:repeat(4,minmax(300px,45vh));}}
+</style>
+</head>
+<body>
+<header>
+  <h1>SCINTILLA <span>// SECTOR ROTATION</span></h1>
+  <div class="status" id="status">loading…</div>
+</header>
+<div id="banner"></div>
+<div class="controls">
+  <button class="btn grp active" data-grp="ALL">All 11</button>
+  <button class="btn grp" data-grp="CYC">Cyclicals</button>
+  <button class="btn grp" data-grp="DEF">Defensives</button>
+  <button class="btn grp" data-grp="GRW">Growth</button>
+  <div class="divider"></div>
+  <span id="chips"></span>
+  <div class="divider"></div>
+  <button class="btn rng" data-d="1D">1D</button>
+  <button class="btn rng" data-d="5D">5D</button>
+  <button class="btn rng" data-d="21">1M</button>
+  <button class="btn rng active" data-d="63">3M</button>
+  <button class="btn rng" data-d="999">6M</button>
+  <div class="divider"></div>
+  <button class="btn" id="refreshBtn">⟳ Refresh</button>
+</div>
+<div class="grid">
+  <div class="panel"><h2>Day Leaders <span class="sub" id="hmDate"></span></h2><div id="heatmap"></div></div>
+  <div class="panel"><h2>Relative Performance % <span class="sub">drag axis = zoom · rebases to left edge like TV</span></h2><div id="lines"><div id="linesChart"></div></div></div>
+  <div class="panel"><h2>Quadrant Positions</h2><div id="qtable"></div></div>
+  <div class="panel"><h2>Rotation Map (RRG) <span class="sub">vs SPY · weekly tail ≈ 8wk</span></h2><div id="rrgWrap"><canvas id="rrg"></canvas></div></div>
+</div>
+
+<script>
+/* ============ CONFIG ============ */
+const SECTORS = [
+  {t:'XLK', n:'Technology',        c:'#58a6ff', g:['GRW']},
+  {t:'XLC', n:'Communications',    c:'#bc8cff', g:['GRW']},
+  {t:'XLY', n:'Cons. Discretionary',c:'#ff9bce', g:['CYC']},
+  {t:'XLF', n:'Financials',        c:'#3fb950', g:['CYC']},
+  {t:'XLI', n:'Industrials',       c:'#d29922', g:['CYC']},
+  {t:'XLB', n:'Materials',         c:'#e3b341', g:['CYC']},
+  {t:'XLE', n:'Energy',            c:'#f85149', g:['CYC']},
+  {t:'XLV', n:'Healthcare',        c:'#56d4dd', g:['DEF']},
+  {t:'XLP', n:'Cons. Staples',     c:'#8ddb8c', g:['DEF']},
+  {t:'XLU', n:'Utilities',         c:'#9e9e9e', g:['DEF']},
+  {t:'XLRE',n:'Real Estate',       c:'#c38b5a', g:['DEF']},
+];
+const BENCH='SPY';
+const REFRESH_MIN=10;
+const RRG_WIN=63, RRG_MOM=10, TAIL_PTS=8, TAIL_STEP=5;
+
+/* ============ STATE ============ */
+let DS={daily:{},intra:{}}; let ACTIVE='daily';
+let selected = JSON.parse(localStorage.getItem('sr_sel')||'null') || SECTORS.map(s=>s.t);
+let lineSeries={}, chart=null, rebaseIdx=-1, rebasing=false;
+
+/* ============ FETCH (own /api/yahoo relay first, then public fallbacks) ============ */
+async function fetchJSON(path,qs){
+  const direct=`https://query1.finance.yahoo.com/${path}?${qs}`;
+  const tries=[
+    `/api/yahoo?path=${encodeURIComponent(path)}&${qs}`,
+    `https://scintillahub.ai/api/yahoo?path=${encodeURIComponent(path)}&${qs}`,
+    direct,
+    'https://corsproxy.io/?url='+encodeURIComponent(direct),
+    'https://api.allorigins.win/raw?url='+encodeURIComponent(direct)];
+  for(const u of tries){
+    try{ const r=await fetch(u,{cache:'no-store'}); if(r.ok){const j=await r.json(); if(j&&!j.error) return j;} }catch(e){}
+  }
+  throw new Error('all fetch routes failed');
+}
+function parseSpark(j){
+  const out={};
+  const put=(sym,ts,cl)=>{
+    const times=[],closes=[];
+    for(let i=0;i<(ts||[]).length;i++){ if(cl[i]!=null){times.push(ts[i]); closes.push(cl[i]);} }
+    if(times.length) out[sym]={times,closes};
+  };
+  const arr=j.spark? j.spark.result : j.result;
+  if(Array.isArray(arr)){
+    for(const r of arr){
+      const resp=r.response&&r.response[0]; if(!resp) continue;
+      put(r.symbol, resp.timestamp, (resp.indicators.quote[0].close)||[]);
+    }
+  }else{
+    for(const sym in j){ const o=j[sym]; if(o&&o.timestamp&&o.close) put(sym,o.timestamp,o.close); }
+  }
+  return out;
+}
+async function loadData(){
+  const syms=[...SECTORS.map(s=>s.t),BENCH].join(',');
+  const [jd,ji]=await Promise.all([
+    fetchJSON('v8/finance/spark',`symbols=${syms}&range=6mo&interval=1d`),
+    fetchJSON('v8/finance/spark',`symbols=${syms}&range=5d&interval=5m`).catch(()=>null)
+  ]);
+  DS.daily=parseSpark(jd);
+  DS.intra=ji?parseSpark(ji):{};
+  if(!DS.daily[BENCH]) throw new Error('no benchmark data');
+}
+
+/* ============ ALIGN to benchmark timeline ============ */
+function aligned(t,ds){
+  const b=ds[BENCH], s=ds[t]; if(!s||!b) return null;
+  const map=new Map(); s.times.forEach((tm,i)=>map.set(tm,s.closes[i]));
+  const closes=[]; let last=null;
+  for(const tm of b.times){ const v=map.get(tm); last=(v!=null)?v:last; closes.push(last); }
+  return closes;
+}
+
+/* ============ RRG MATH ============ */
+function zLast(arr,w){
+  const n=arr.length; if(n<w) w=n;
+  const win=arr.slice(n-w);
+  const m=win.reduce((a,b)=>a+b,0)/win.length;
+  const sd=Math.sqrt(win.reduce((a,b)=>a+(b-m)*(b-m),0)/win.length)||1e-9;
+  return (arr[n-1]-m)/sd;
+}
+function rrgSeries(t){
+  if(!DS.daily[BENCH]) return null;
+  const b=DS.daily[BENCH].closes, s=aligned(t,DS.daily); if(!s) return null;
+  const rs=s.map((v,i)=>100*v/b[i]);
+  const ratio=[], mom=[];
+  for(let i=0;i<rs.length;i++){
+    const w=Math.min(RRG_WIN,i+1);
+    ratio.push(100+ (zLast(rs.slice(0,i+1),w))*1.0);
+  }
+  for(let i=0;i<ratio.length;i++){
+    if(i<RRG_MOM){mom.push(100); continue;}
+    const roc=[]; for(let k=RRG_MOM;k<=i;k++) roc.push(ratio[k]-ratio[k-RRG_MOM]);
+    const m=roc.reduce((a,b)=>a+b,0)/roc.length;
+    const sd=Math.sqrt(roc.reduce((a,b)=>a+(b-m)*(b-m),0)/roc.length)||1e-9;
+    mom.push(100+((ratio[i]-ratio[i-RRG_MOM])-0)/sd);
+  }
+  return {ratio,mom};
+}
+function quadrant(x,y){
+  if(x>=100&&y>=100) return ['LEADING','b-lead'];
+  if(x>=100&&y<100)  return ['WEAKENING','b-weak'];
+  if(x<100&&y<100)   return ['LAGGING','b-lag'];
+  return ['IMPROVING','b-impr'];
+}
+
+/* ============ HEATMAP ============ */
+function dayChange(t){
+  const s=DS.daily[t]; if(!s||s.closes.length<2) return 0;
+  const n=s.closes.length;
+  return (s.closes[n-1]/s.closes[n-2]-1)*100;
+}
+function heatColor(p){
+  const a=Math.min(Math.abs(p)/2.5,1);
+  return p>=0? `rgba(46,160,67,${0.15+0.75*a})` : `rgba(218,54,51,${0.15+0.75*a})`;
+}
+function renderHeatmap(){
+  const el=document.getElementById('heatmap'); el.innerHTML='';
+  const rows=SECTORS.map(s=>({...s,p:dayChange(s.t)})).sort((a,b)=>b.p-a.p);
+  for(const s of rows){
+    const d=document.createElement('div');
+    d.className='tile'+(selected.includes(s.t)?'':' off');
+    d.style.background=heatColor(s.p);
+    d.innerHTML=`<a class="tv" target="_blank" href="https://www.tradingview.com/chart/?symbol=AMEX%3A${s.t}">↗</a>
+      <div><div class="tk">${s.t}</div><div class="nm">${s.n}</div></div>
+      <div class="pc">${s.p>=0?'+':''}${s.p.toFixed(2)}%</div>`;
+    d.onclick=(e)=>{ if(e.target.classList.contains('tv'))return; toggle(s.t); };
+    el.appendChild(d);
+  }
+  const bp=dayChange(BENCH);
+  document.getElementById('hmDate').textContent=`SPY ${bp>=0?'+':''}${bp.toFixed(2)}% · latest session`;
+}
+
+/* ============ LINES (lightweight-charts, TV-style rebase) ============ */
+function initChart(){
+  const el=document.getElementById('linesChart');
+  chart=LightweightCharts.createChart(el,{
+    layout:{background:{color:'transparent'},textColor:'#8b949e',fontSize:10},
+    grid:{vertLines:{color:'#21262d'},horzLines:{color:'#21262d'}},
+    rightPriceScale:{borderColor:'#2d333b'},
+    timeScale:{borderColor:'#2d333b',timeVisible:false},
+    crosshair:{mode:0},
+    autoSize:true,
+    handleScroll:{mouseWheel:false,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:false},
+    handleScale:{mouseWheel:false,pinch:true,axisPressedMouseMove:true,axisDoubleClickReset:true},
+  });
+  chart.timeScale().subscribeVisibleLogicalRangeChange(r=>{
+    if(!r||rebasing) return;
+    const idx=Math.max(0,Math.round(r.from));
+    if(idx!==rebaseIdx){ rebaseIdx=idx; rebaseLines(); } else updateLabels();
+  });
+}
+function rebaseLines(){
+  const b=DS[ACTIVE][BENCH]; if(!b||!chart) return;
+  rebasing=true;
+  const lr=chart.timeScale().getVisibleLogicalRange();
+  for(const s of SECTORS){
+    const closes=aligned(s.t,DS[ACTIVE]); if(!closes){ if(lineSeries[s.t]) lineSeries[s.t].setData([]); continue; }
+    const base=closes[Math.min(rebaseIdx,closes.length-1)]||closes[0];
+    const pts=b.times.map((tm,i)=>({time:tm,value:(closes[i]/base-1)*100}));
+    lineSeries[s.t].setData(selected.includes(s.t)?pts:[]);
+  }
+  if(lr) chart.timeScale().setVisibleLogicalRange(lr);
+  rebasing=false;
+  updateLabels();
+}
+function updateLabels(){
+  const cont=document.getElementById('lines'); if(!cont||!chart) return;
+  cont.querySelectorAll('.llabel').forEach(e=>e.remove());
+  const ds=DS[ACTIVE], b=ds[BENCH]; if(!b) return;
+  const cw=cont.clientWidth;
+  for(const s of SECTORS){
+    if(!selected.includes(s.t)||!lineSeries[s.t]) continue;
+    const closes=aligned(s.t,ds); if(!closes) continue;
+    const base=closes[Math.min(rebaseIdx,closes.length-1)]||closes[0];
+    const v=(closes[closes.length-1]/base-1)*100;
+    const y=lineSeries[s.t].priceToCoordinate(v); if(y==null) continue;
+    let x=chart.timeScale().timeToCoordinate(b.times[b.times.length-1]);
+    const el=document.createElement('div');
+    el.className='llabel'; el.style.color=s.c;
+    el.style.left=((x!=null?Math.min(x+6,cw-78):cw-78))+'px';
+    el.style.top=y+'px';
+    el.textContent=s.t;
+    cont.appendChild(el);
+  }
+}
+function renderLines(){
+  if(!chart) initChart();
+  for(const s of SECTORS){
+    if(!lineSeries[s.t]) lineSeries[s.t]=chart.addLineSeries({color:s.c,lineWidth:2,priceLineVisible:false,lastValueVisible:true});
+  }
+  rebaseIdx=-1;
+  setRange(currentRange);
+}
+let currentRange='63';
+function setRange(rk){
+  currentRange=rk;
+  const want=(rk==='1D'||rk==='5D')?'intra':'daily';
+  if(DS[want][BENCH]) ACTIVE=want;
+  chart.applyOptions({timeScale:{timeVisible:ACTIVE==='intra',secondsVisible:false}});
+  const n=DS[ACTIVE][BENCH].times.length;
+  const bars = rk==='1D'?79 : rk==='5D'?n : Math.min(parseInt(rk),n);
+  const from=Math.max(0,n-Math.min(bars,n));
+  rebaseIdx=from; rebaseLines();
+  chart.timeScale().setVisibleLogicalRange({from:from-0.5,to:n-0.5});
+}
+
+/* ============ RRG CANVAS ============ */
+function renderRRG(){
+  const cv=document.getElementById('rrg'), wrap=document.getElementById('rrgWrap');
+  const W=wrap.clientWidth,H=wrap.clientHeight, dpr=window.devicePixelRatio||1;
+  cv.width=W*dpr; cv.height=H*dpr;
+  const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H);
+  const pad=36, cx=W/2, cy=H/2;
+  const R=3.2; // z-range shown
+  const X=v=>pad+((v-(100-R))/(2*R))*(W-2*pad);
+  const Y=v=>H-pad-((v-(100-R))/(2*R))*(H-2*pad);
+  ctx.globalAlpha=.07;
+  ctx.fillStyle='#3fb950'; ctx.fillRect(cx,pad,W-pad-cx,cy-pad);
+  ctx.fillStyle='#d29922'; ctx.fillRect(cx,cy,W-pad-cx,H-pad-cy);
+  ctx.fillStyle='#f85149'; ctx.fillRect(pad,cy,cx-pad,H-pad-cy);
+  ctx.fillStyle='#58a6ff'; ctx.fillRect(pad,pad,cx-pad,cy-pad);
+  ctx.globalAlpha=1;
+  ctx.strokeStyle='#2d333b'; ctx.beginPath();
+  ctx.moveTo(pad,cy);ctx.lineTo(W-pad,cy); ctx.moveTo(cx,pad);ctx.lineTo(cx,H-pad); ctx.stroke();
+  ctx.fillStyle='#8b949e'; ctx.font='9px sans-serif';
+  ctx.fillText('LEADING',W-pad-48,pad+12); ctx.fillText('WEAKENING',W-pad-62,H-pad-4);
+  ctx.fillText('LAGGING',pad+4,H-pad-4); ctx.fillText('IMPROVING',pad+4,pad+12);
+  ctx.fillText('RS-RATIO →',cx+6,H-6); ctx.save(); ctx.translate(10,cy-8); ctx.rotate(-Math.PI/2); ctx.fillText('RS-MOM →',0,0); ctx.restore();
+  for(const s of SECTORS){
+    if(!selected.includes(s.t)) continue;
+    const rr=rrgSeries(s.t); if(!rr) continue;
+    const n=rr.ratio.length;
+    const pts=[];
+    for(let k=TAIL_PTS-1;k>=0;k--){ const i=n-1-k*TAIL_STEP; if(i>=0) pts.push([rr.ratio[i],rr.mom[i]]); }
+    ctx.strokeStyle=s.c; ctx.lineWidth=1.5; ctx.globalAlpha=.55; ctx.beginPath();
+    pts.forEach((p,i)=>{ const px=X(p[0]),py=Y(p[1]); i?ctx.lineTo(px,py):ctx.moveTo(px,py); });
+    ctx.stroke(); ctx.globalAlpha=1;
+    pts.slice(0,-1).forEach(p=>{ ctx.fillStyle=s.c; ctx.globalAlpha=.4; ctx.beginPath(); ctx.arc(X(p[0]),Y(p[1]),2.4,0,7); ctx.fill(); ctx.globalAlpha=1; });
+    const last=pts[pts.length-1];
+    ctx.fillStyle=s.c; ctx.beginPath(); ctx.arc(X(last[0]),Y(last[1]),5.5,0,7); ctx.fill();
+    ctx.fillStyle='#e6edf3'; ctx.font='bold 10px sans-serif'; ctx.fillText(s.t,X(last[0])+8,Y(last[1])+3);
+  }
+}
+
+/* ============ QUADRANT TABLE ============ */
+function renderTable(){
+  const order={'LEADING':0,'IMPROVING':1,'WEAKENING':2,'LAGGING':3};
+  const rows=[];
+  for(const s of SECTORS){
+    const rr=rrgSeries(s.t); if(!rr) continue;
+    const x=rr.ratio[rr.ratio.length-1], y=rr.mom[rr.mom.length-1];
+    const [q,cls]=quadrant(x,y);
+    rows.push({...s,x,y,q,cls,p:dayChange(s.t)});
+  }
+  rows.sort((a,b)=>order[a.q]-order[b.q]||b.x-a.x);
+  document.getElementById('qtable').innerHTML=`<table><thead><tr>
+    <th>Sector</th><th>Quadrant</th><th class="num">RS-Ratio</th><th class="num">RS-Mom</th><th class="num">Day %</th></tr></thead><tbody>`+
+    rows.map(r=>`<tr>
+      <td><span style="color:${r.c}">●</span> <b>${r.t}</b> <span style="color:var(--dim);font-size:10px">${r.n}</span></td>
+      <td><span class="badge ${r.cls}">${r.q}</span></td>
+      <td class="num">${r.x.toFixed(2)}</td>
+      <td class="num">${r.y.toFixed(2)}</td>
+      <td class="num ${r.p>=0?'up':'dn'}">${r.p>=0?'+':''}${r.p.toFixed(2)}%</td></tr>`).join('')+`</tbody></table>`;
+}
+
+/* ============ CONTROLS ============ */
+function toggle(t){
+  selected=selected.includes(t)? selected.filter(x=>x!==t):[...selected,t];
+  localStorage.setItem('sr_sel',JSON.stringify(selected));
+  renderAll(false);
+}
+function renderChips(){
+  const el=document.getElementById('chips'); el.innerHTML='';
+  for(const s of SECTORS){
+    const c=document.createElement('span');
+    c.className='chip'+(selected.includes(s.t)?' on':'');
+    c.innerHTML=`<span class="dot" style="background:${s.c}"></span>${s.t}`;
+    c.onclick=()=>toggle(s.t);
+    el.appendChild(c);
+  }
+}
+document.querySelectorAll('.grp').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.grp').forEach(x=>x.classList.remove('active')); b.classList.add('active');
+  const g=b.dataset.grp;
+  selected = g==='ALL'? SECTORS.map(s=>s.t) : SECTORS.filter(s=>s.g.includes(g)).map(s=>s.t);
+  localStorage.setItem('sr_sel',JSON.stringify(selected));
+  renderAll(false);
+});
+document.querySelectorAll('.rng').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.rng').forEach(x=>x.classList.remove('active')); b.classList.add('active');
+  setRange(b.dataset.d);
+});
+document.getElementById('refreshBtn').onclick=()=>boot(true);
+
+/* ============ BOOT ============ */
+function renderAll(dataChanged){
+  renderChips(); renderHeatmap(); renderRRG(); renderTable();
+  if(dataChanged) renderLines(); else rebaseLines();
+}
+async function boot(manual){
+  const st=document.getElementById('status');
+  try{
+    st.textContent='fetching…';
+    await loadData();
+    renderAll(true);
+    st.classList.remove('err');
+    st.innerHTML=`<b>● LIVE</b> Yahoo daily+5m · updated ${new Date().toLocaleTimeString()} · auto-refresh ${REFRESH_MIN}min`;
+    document.getElementById('banner').style.display='none';
+  }catch(e){
+    st.classList.add('err'); st.innerHTML='<b>● FEED DOWN</b>';
+    const bn=document.getElementById('banner');
+    bn.style.display='block';
+    bn.textContent='Data feed unreachable. On scintillahub.ai this should never happen (own relay) — hard-refresh (Cmd+Shift+R); if still red, tell Claude.';
+  }
+}
+window.addEventListener('resize',()=>{renderRRG(); updateLabels();});
+boot();
+setInterval(()=>boot(),REFRESH_MIN*60*1000);
+</script>
+</body>
+</html>
