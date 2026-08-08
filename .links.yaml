@@ -1,0 +1,22 @@
+# .links — scintilla-cockpit-deploy
+# Every external surface this repo is wired to. Verified 2026-08-08 where marked.
+
+github:
+  owner: aharveyrianhard-stack
+  repo: scintilla-cockpit-deploy
+  url: https://github.com/aharveyrianhard-stack/scintilla-cockpit-deploy
+
+vercel:
+  project: scintilla-cockpit
+  live_urls:
+  - https://scintillahub.ai
+  - https://www.scintillahub.ai
+  verified: true   # domains read from the Vercel project on 2026-08-08
+
+supabase:
+  project: scintilla-live (wadinxqplrggagkvrdag)
+
+drive:
+  folder: unset           # not yet recorded — fill when the Drive folder id is known
+
+registry: https://github.com/aharveyrianhard-stack/ai-operating-system/blob/main/registry/projects.yaml
